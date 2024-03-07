@@ -1,0 +1,1 @@
+This repository contains the slides for the presentation "Survival analysis in tidymodels" at the Open Source Demos in March 2024.

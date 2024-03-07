@@ -1,0 +1,100 @@
+[
+  {
+    "objectID": "index.html#what-we-have",
+    "href": "index.html#what-we-have",
+    "title": "Survival analysis in tidymodels",
+    "section": "What we have",
+    "text": "What we have\n\n\n\ncustomer churn, time to failure, time to adoption"
+  },
+  {
+    "objectID": "index.html#what-if-we-just-use-the-time",
+    "href": "index.html#what-if-we-just-use-the-time",
+    "title": "Survival analysis in tidymodels",
+    "section": "What if we just use the time?",
+    "text": "What if we just use the time?\n\n\nThat time is observation time, not time to event."
+  },
+  {
+    "objectID": "index.html#what-if-we-just-use-the-time-1",
+    "href": "index.html#what-if-we-just-use-the-time-1",
+    "title": "Survival analysis in tidymodels",
+    "section": "What if we just use the time?",
+    "text": "What if we just use the time?\n\n\nIf we assume that’s time-to-event, we assume everything is an event."
+  },
+  {
+    "objectID": "index.html#what-if-we-just-use-complete-observations",
+    "href": "index.html#what-if-we-just-use-complete-observations",
+    "title": "Survival analysis in tidymodels",
+    "section": "What if we just use complete observations?",
+    "text": "What if we just use complete observations?\n\n\nWe either have to wait or throw away information."
+  },
+  {
+    "objectID": "index.html#why-survival-analysis",
+    "href": "index.html#why-survival-analysis",
+    "title": "Survival analysis in tidymodels",
+    "section": "Why survival analysis?",
+    "text": "Why survival analysis?\nIf we try to model time-to-event data without it, we either\n\nanswer a different question\nmake wrong assumptions\nwaste information\n\nSurvival analysis takes both aspects, time and event status, into account and can handle censored data.\n\nnot everything is life/death but you can benefit from those methods"
+  },
+  {
+    "objectID": "index.html#experience-very-similar",
+    "href": "index.html#experience-very-similar",
+    "title": "Survival analysis in tidymodels",
+    "section": "Experience: very similar!",
+    "text": "Experience: very similar!\nEssentially:\nvery much like classification and regression in tidymodels\n\n\nThe main differences:\n\nthe models\nthe performance metrics"
+  },
+  {
+    "objectID": "index.html#churn-data",
+    "href": "index.html#churn-data",
+    "title": "Survival analysis in tidymodels",
+    "section": "Churn data",
+    "text": "Churn data\n\ntelco_churn\n#&gt; # A tibble: 7,032 × 20\n#&gt;    churn_surv tenure gender senior_citizen partner dependents phone_service\n#&gt;        &lt;Surv&gt;  &lt;dbl&gt; &lt;chr&gt;  &lt;fct&gt;          &lt;chr&gt;   &lt;chr&gt;      &lt;chr&gt;        \n#&gt;  1         1+      1 Female No             Yes     No         No           \n#&gt;  2        34+     34 Male   No             No      No         Yes          \n#&gt;  3         2       2 Male   No             No      No         Yes          \n#&gt;  4        45+     45 Male   No             No      No         No           \n#&gt;  5         2       2 Female No             No      No         Yes          \n#&gt;  6         8       8 Female No             No      No         Yes          \n#&gt;  7        22+     22 Male   No             No      Yes        Yes          \n#&gt;  8        10+     10 Female No             No      No         No           \n#&gt;  9        28      28 Female No             Yes     No         Yes          \n#&gt; 10        62+     62 Male   No             No      Yes        Yes          \n#&gt; # ℹ 7,022 more rows\n#&gt; # ℹ 13 more variables: multiple_lines &lt;chr&gt;, internet_service &lt;chr&gt;,\n#&gt; #   online_security &lt;chr&gt;, online_backup &lt;chr&gt;, device_protection &lt;chr&gt;,\n#&gt; #   tech_support &lt;chr&gt;, streaming_tv &lt;chr&gt;, streaming_movies &lt;chr&gt;,\n#&gt; #   contract &lt;chr&gt;, paperless_billing &lt;chr&gt;, payment_method &lt;chr&gt;,\n#&gt; #   monthly_charges &lt;dbl&gt;, total_charges &lt;dbl&gt;"
+  },
+  {
+    "objectID": "index.html#split-the-data",
+    "href": "index.html#split-the-data",
+    "title": "Survival analysis in tidymodels",
+    "section": "Split the data",
+    "text": "Split the data\n\nset.seed(403)\ntelco_split &lt;- initial_split(telco_churn)\ntelco_train &lt;- training(telco_split)\ntelco_test &lt;- testing(telco_split)\n\ntelco_rs &lt;- vfold_cv(telco_train)\n\n\n\ngonna do a regression and a survival model in parallel\nthis is still the same"
+  },
+  {
+    "objectID": "index.html#preprocessing",
+    "href": "index.html#preprocessing",
+    "title": "Survival analysis in tidymodels",
+    "section": "Preprocessing",
+    "text": "Preprocessing\n\n\n\nrec_reg &lt;- \n  recipe(\n    tenure ~ ., \n    data = telco_train\n  ) %&gt;% \n  step_rm(churn_surv)\n\n\n\nrec_surv &lt;- \n  recipe(\n    churn_surv ~ ., \n    data = telco_train\n  ) %&gt;% \n  step_rm(tenure)"
+  },
+  {
+    "objectID": "index.html#model-specification",
+    "href": "index.html#model-specification",
+    "title": "Survival analysis in tidymodels",
+    "section": "Model specification",
+    "text": "Model specification\n\n\n\n# via standard {parnsip}\nrf_reg &lt;- \n  rand_forest(min_n = tune()) %&gt;%\n  set_mode(\"regression\") %&gt;%\n  set_engine(\"ranger\")\n\nwflow_reg &lt;- \n  workflow() %&gt;%\n  add_recipe(rec_reg) %&gt;%\n  add_model(rf_reg)\n\n\n\n# via {censored}, an extension\nrf_surv &lt;- \n  rand_forest(min_n = tune()) %&gt;%\n  set_mode(\"censored regression\") %&gt;%\n  set_engine(\"aorsf\")\n\nwflow_surv &lt;-\n  workflow() %&gt;%\n  add_recipe(rec_surv) %&gt;%\n  add_model(rf_surv)"
+  },
+  {
+    "objectID": "index.html#model-tuning",
+    "href": "index.html#model-tuning",
+    "title": "Survival analysis in tidymodels",
+    "section": "Model tuning",
+    "text": "Model tuning\n\n\n\nset.seed(403)\nres_reg &lt;- \n  tune_grid(\n    wflow_reg,\n    resamples = telco_rs,\n    grid = 5\n  )\n\n\n\nset.seed(403)\nres_surv &lt;- \n  tune_grid(\n    wflow_surv,\n    resamples = telco_rs,\n    grid = 5, \n    metrics = metric_set(\n      brier_survival_integrated\n      ),\n    eval_time = c(12, 24, 36)\n  )\n\n\n\n\n\nnew survival metric\nrequire eval_time"
+  },
+  {
+    "objectID": "index.html#model-selection",
+    "href": "index.html#model-selection",
+    "title": "Survival analysis in tidymodels",
+    "section": "Model selection",
+    "text": "Model selection\n\nshow_best(res_reg, metric = \"rmse\", n = 1)\n#&gt; # A tibble: 1 × 7\n#&gt;   min_n .metric .estimator  mean     n std_err .config             \n#&gt;   &lt;int&gt; &lt;chr&gt;   &lt;chr&gt;      &lt;dbl&gt; &lt;int&gt;   &lt;dbl&gt; &lt;chr&gt;               \n#&gt; 1     3 rmse    standard    4.59    10  0.0656 Preprocessor1_Model3\n\nshow_best(res_surv, metric = \"brier_survival_integrated\", n = 1)\n#&gt; # A tibble: 1 × 7\n#&gt;   min_n .metric                   .estimator   mean     n  std_err .config      \n#&gt;   &lt;int&gt; &lt;chr&gt;                     &lt;chr&gt;       &lt;dbl&gt; &lt;int&gt;    &lt;dbl&gt; &lt;chr&gt;        \n#&gt; 1     3 brier_survival_integrated standard   0.0228    10 0.000869 Preprocessor…"
+  },
+  {
+    "objectID": "index.html#final-model",
+    "href": "index.html#final-model",
+    "title": "Survival analysis in tidymodels",
+    "section": "Final model",
+    "text": "Final model\n\n\n\nbest_reg &lt;- select_best(\n  res_reg, \n  metric = \"rmse\"\n)\n\nwflow_reg &lt;- finalize_workflow(\n  wflow_reg, \n  best_reg\n)\n\nfit_reg &lt;- last_fit(\n  wflow_reg, \n  telco_split\n)\n\n\n\nbest_surv &lt;- select_best(\n  res_surv, \n  metric = \"brier_survival_integrated\"\n)\n\nwflow_surv &lt;- finalize_workflow(\n  wflow_surv,\n  best_surv\n)\n\nfit_surv &lt;- last_fit(\n  wflow_surv, \n  telco_split, \n  metrics = \n    metric_set(\n      brier_survival_integrated\n    ),\n  eval_time = c(12, 24, 36)\n)"
+  },
+  {
+    "objectID": "index.html#why-this-is-so-neat",
+    "href": "index.html#why-this-is-so-neat",
+    "title": "Survival analysis in tidymodels",
+    "section": "Why this is so neat",
+    "text": "Why this is so neat\n\n\ntidymodels users can now use the same framework for survival analysis as for classification and regression.\n\n\n\n\nSurvival analysis users can now use the whole tidymodels framework, with all the existing niceties."
+  }
+]

@@ -1,0 +1,405 @@
+---
+title: "Survival analysis in tidymodels"
+author: "Hannah Frick"
+format: revealjs
+knitr:
+  opts_chunk: 
+    echo: true
+    collapse: true
+    comment: "#>"
+---
+
+# What?
+
+---
+
+<br> <br> <br>
+
+We are adding survival analysis to the entire tidymodels framework!
+
+. . . 
+
+Survival analysis is a set of statistical methods for time-to-event data - and you may or may not observe that event.
+
+
+
+# Why?
+
+:::{.notes}
+- not just for medical research
+- "how long until X?" really does need the appropriate methods
+:::
+
+<!-- --- -->
+
+<!-- It's not just for medical research and the data really does need the appropriate methods.  -->
+
+## What we have
+
+```{r}
+#| echo: false
+library(tidyverse)
+
+symbol_observed <- 19
+symbol_censored <- 1
+
+df <- tibble(
+  id = 1:3,
+  obs_start = c(1, 3, 4),
+  obs_end = c(4, 5, 5),
+  status = c(symbol_observed, symbol_censored, symbol_censored)
+)
+
+ggplot(df) +
+  geom_segment(aes(x = obs_start, xend = obs_end, y = id, yend = id, linewidth = I(1.3))) +
+  geom_point(aes(x = obs_end, y = id, shape = status, size = I(5))) +
+  geom_vline(aes(xintercept = 5)) +
+  scale_shape_identity("Status",
+                       labels = c("censored", "event"),
+                       breaks = c(1, 19),
+                       guide = "legend") +
+  scale_x_continuous(limits = c(0, 5.5)) +
+  scale_y_continuous(limits = c(0.5, 3.5)) +
+  labs(x = "Time", y = "Observation") +
+  theme_bw() +
+  theme(axis.text.y = element_blank(), legend.position = "top")
+```
+
+:::{.notes}
+- customer churn, time to failure, time to adoption
+:::
+
+## What if we just use the time?
+
+```{r}
+#| echo: false
+ggplot(df) +
+  geom_segment(aes(x = obs_start, xend = obs_end, y = id, yend = id, linewidth = I(1.3))) +
+  scale_x_continuous(limits = c(0, 5.5)) +
+  scale_y_continuous(limits = c(0.5, 3.5)) +
+  labs(x = "Time", y = "Observation") +
+  theme_bw() +
+  theme(axis.text.y = element_blank(), legend.position = "top")
+```
+
+. . . 
+
+That time is **observation time**, not **time to event**.
+
+## What if we just use the time?
+
+```{r}
+#| echo: false
+df <- tibble(
+  id = 1:3,
+  obs_start = c(1, 3, 4),
+  obs_end = c(4, 5, 5),
+  status = c(symbol_observed, symbol_observed, symbol_observed)
+)
+
+ggplot(df) +
+  geom_segment(aes(x = obs_start, xend = obs_end, y = id, yend = id, linewidth = I(1.3))) +
+  geom_point(aes(x = obs_end, y = id, shape = status, size = I(5))) +
+  #geom_vline(aes(xintercept = 5)) +
+  scale_shape_identity("Status",
+                       labels = c("event"),
+                       breaks = c(19),
+                       guide = "legend") +
+  scale_x_continuous(limits = c(0, 5.5)) +
+  scale_y_continuous(limits = c(0.5, 3.5)) +
+  labs(x = "Time", y = "Observation") +
+  theme_bw() +
+  theme(axis.text.y = element_blank(), legend.position = "top")
+```
+
+. . .
+
+If we assume that's time-to-event, **we assume everything is an event**.
+
+## What if we just use complete observations?
+
+```{r}
+#| echo: false
+df <- tibble(
+  id = 1:3,
+  obs_start = c(1, 3, 4),
+  obs_end = c(4, 5, 5),
+  status = c(symbol_observed, symbol_censored, symbol_censored),
+  color = c("black", "gray", "gray")
+)
+
+ggplot(df) +
+  geom_segment(aes(x = obs_start, xend = obs_end, y = id, yend = id, linewidth = I(1.3), color = I(color))) +
+  geom_point(aes(x = obs_end, y = id, shape = status, size = I(5), color = I(color))) +
+  geom_vline(aes(xintercept = 5)) +
+  scale_shape_identity("Status",
+                       labels = c("censored", "event"),
+                       breaks = c(1, 19),
+                       guide = "legend") +
+  scale_x_continuous(limits = c(0, 5.5)) +
+  scale_y_continuous(limits = c(0.5, 3.5)) +
+  labs(x = "Time", y = "Observation") +
+  theme_bw() +
+  theme(axis.text.y = element_blank(), legend.position = "top")
+```
+
+. . .
+
+We either have to wait or throw away information.
+
+<!-- ## What if we just use the event? -->
+
+## Why survival analysis?
+
+If we try to model time-to-event data without it, we either
+
+- answer a different question
+- make wrong assumptions
+- waste information
+
+Survival analysis takes both aspects, time and event status, into account and can handle censored data.
+
+:::{.notes}
+not everything is life/death
+but you can benefit from those methods
+:::
+
+# How?
+
+---
+
+## Experience: very similar!
+
+Essentially:  
+very much like classification and regression in tidymodels
+
+<br>
+
+. . .
+
+The main differences:
+
+- the models
+- the performance metrics
+
+```{r data-prep}
+#| echo: false
+#| message: false
+#| warning: false 
+
+library(tidymodels)
+library(censored)
+library(readr)
+library(janitor)
+#library(survminer)
+
+data_url <- "https://raw.githubusercontent.com/IBM/telco-customer-churn-on-icp4d/master/data/Telco-Customer-Churn.csv"
+telco_raw <- read_csv(data_url) |> 
+  clean_names()
+
+telco_churn <- telco_raw |>
+  drop_na() |>
+  mutate(
+    churn = if_else(churn == "Yes", 1, 0),
+    churn_surv = Surv(tenure, churn),
+    multiple_lines = if_else(multiple_lines == "No phone service", "No", multiple_lines),
+    online_security = if_else(online_security == "No internet service", "No", online_security),
+    online_backup = if_else(online_backup == "No internet service", "No", online_backup),
+    device_protection = if_else(device_protection == "No internet service", "No", device_protection),
+    tech_support = if_else(tech_support == "No internet service", "No", tech_support),
+    streaming_tv = if_else(streaming_tv == "No internet service", "No", streaming_tv),
+    streaming_movies = if_else(streaming_movies == "No internet service", "No", streaming_movies),
+    senior_citizen = factor(senior_citizen, levels = 0:1, labels = c("No", "Yes"))
+  ) |>
+  select(-churn, -customer_id) %>% 
+  relocate(churn_surv, tenure)
+```
+
+## Churn data
+
+```{r}
+telco_churn
+```
+
+## Split the data
+
+```{r data-split}
+set.seed(403)
+telco_split <- initial_split(telco_churn)
+telco_train <- training(telco_split)
+telco_test <- testing(telco_split)
+
+telco_rs <- vfold_cv(telco_train)
+```
+
+:::{.notes}
+- gonna do a regression and a survival model in parallel
+- this is still the same
+:::
+
+## Preprocessing
+
+::: columns
+::: {.column width="50%"}
+```{r preprocessing-regression}
+rec_reg <- 
+  recipe(
+    tenure ~ ., 
+    data = telco_train
+  ) %>% 
+  step_rm(churn_surv)
+```
+:::
+::: {.column width="50%"}
+```{r preprocessing-survival}
+rec_surv <- 
+  recipe(
+    churn_surv ~ ., 
+    data = telco_train
+  ) %>% 
+  step_rm(tenure)
+```
+:::
+:::
+
+## Model specification
+
+::: columns
+::: {.column width="50%"}
+```{r model-spec-regression}
+#| code-line-numbers: "|4-5"
+# via standard {parnsip}
+rf_reg <- 
+  rand_forest(min_n = tune()) %>%
+  set_mode("regression") %>%
+  set_engine("ranger")
+
+wflow_reg <- 
+  workflow() %>%
+  add_recipe(rec_reg) %>%
+  add_model(rf_reg)
+```
+:::
+::: {.column width="50%"}
+```{r model-sepc-survival}
+#| code-line-numbers: "|4-5"
+# via {censored}, an extension
+rf_surv <- 
+  rand_forest(min_n = tune()) %>%
+  set_mode("censored regression") %>%
+  set_engine("aorsf")
+
+wflow_surv <-
+  workflow() %>%
+  add_recipe(rec_surv) %>%
+  add_model(rf_surv)
+```
+:::
+:::
+
+## Model tuning
+
+::: columns
+::: {.column width="50%"}
+```{r model-tuning-regression}
+#| cache: true
+set.seed(403)
+res_reg <- 
+  tune_grid(
+    wflow_reg,
+    resamples = telco_rs,
+    grid = 5
+  )
+```
+:::
+::: {.column width="50%"}
+```{r model-tuning-survival}
+#| cache: true
+#| code-line-numbers: "|7-10"
+set.seed(403)
+res_surv <- 
+  tune_grid(
+    wflow_surv,
+    resamples = telco_rs,
+    grid = 5, 
+    metrics = metric_set(
+      brier_survival_integrated
+      ),
+    eval_time = c(12, 24, 36)
+  )
+```
+:::
+:::
+
+:::{.notes}
+- new survival metric
+- require eval_time
+:::
+
+## Model selection
+
+```{r model-selection}
+show_best(res_reg, metric = "rmse", n = 1)
+
+show_best(res_surv, metric = "brier_survival_integrated", n = 1)
+```
+
+## Final model
+
+::: columns
+::: {.column width="50%"}
+```{r last-fit-regression}
+#| cache: true
+best_reg <- select_best(
+  res_reg, 
+  metric = "rmse"
+)
+
+wflow_reg <- finalize_workflow(
+  wflow_reg, 
+  best_reg
+)
+
+fit_reg <- last_fit(
+  wflow_reg, 
+  telco_split
+)
+```
+:::
+::: {.column width="50%"}
+```{r last-fit-survival}
+#| cache: true
+#| code-line-numbers: "|14-18"
+best_surv <- select_best(
+  res_surv, 
+  metric = "brier_survival_integrated"
+)
+
+wflow_surv <- finalize_workflow(
+  wflow_surv,
+  best_surv
+)
+
+fit_surv <- last_fit(
+  wflow_surv, 
+  telco_split, 
+  metrics = 
+    metric_set(
+      brier_survival_integrated
+    ),
+  eval_time = c(12, 24, 36)
+)
+```
+:::
+:::
+
+
+## Why this is so neat
+
+. . .
+
+- tidymodels users can now use the same framework for survival analysis as for classification and regression.
+
+. . .
+
+- Survival analysis users can now use the whole tidymodels framework, with all the existing niceties.
